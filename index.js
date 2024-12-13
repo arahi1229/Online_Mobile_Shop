@@ -1,13 +1,16 @@
-
 const express = require('express');
 const cors = require('cors');
-const app = express();
+const { MongoClient, ServerApiVersion } = require('mongodb');
+const path = require('path');
 
-// Enable CORS for cross-origin requests
+const app = express();
 app.use(cors());
 
-// Mobile data with local image paths
-// const mobiles = [
+// Serve static files for images
+app.use('/images', express.static(path.join(__dirname, 'images')));
+
+// Static mobile data for fallback
+// const staticMobiles = [
 //   {
 //     id: 1,
 //     name: "iPhone 14",
@@ -74,36 +77,53 @@ app.use(cors());
 //   },
 // ];
 
-const { MongoClient, ServerApiVersion } = require('mongodb');
+// MongoDB connection URI
 const uri = "mongodb+srv://ar17301164:ARMMRrfa10@cluster0.pbiht.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
-
-// Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
     strict: true,
     deprecationErrors: true,
-  }
+  },
 });
 
-async function run() {
+let phonecollection;
+
+async function initializeDatabase() {
   try {
-    // Connect the client to the server	(optional starting in v4.7)
+    // Connect to MongoDB
     await client.connect();
-    // Send a ping to confirm a successful connection
-    const phonecollection = client.db("onlinemobileshop").collection("phone");
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
-  } finally {
-    // Ensures that the client will close when you finish/error
-    await client.close();
+    const db = client.db("onlinemobileshop");
+    phonecollection = db.collection("phone");
+    console.log("Connected to MongoDB successfully!");
+  } catch (error) {
+    console.error("Failed to connect to MongoDB:", error);
   }
 }
-run().catch(console.dir);
 
+initializeDatabase().catch(console.dir);
 
-app.get('/api', async(req, res) => {
-const mobiles=await phonecollection.find({})
-  res.json(mobiles);
+// Middleware to ensure database is initialized
+app.use((req, res, next) => {
+  if (!phonecollection) {
+    console.warn("Database not initialized yet. Falling back to static data.");
+  }
+  next();
+});
+
+// API endpoint to fetch all mobiles
+app.get('/api', async (req, res) => {
+  try {
+    if (!phonecollection) {
+      // Database not connected, fallback to static data
+      return res.json(staticMobiles);
+    }
+    const mobiles = await phonecollection.find({}).toArray();
+    res.json(mobiles);
+  } catch (error) {
+    console.error("Failed to fetch mobiles from database:", error);
+    res.json(staticMobiles); // Fallback to static data on error
+  }
 });
 
 // Test route
@@ -111,8 +131,9 @@ app.get('/', (req, res) => {
   res.send('<h1>Backend is running!</h1>');
 });
 
- const port = process.env.PORT || 3000;
-
+// Start the server
+const port = process.env.PORT || 3000;
 app.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);
 });
+
